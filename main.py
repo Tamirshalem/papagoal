@@ -31,6 +31,15 @@ def init_db():
     conn = get_db()
     try:
         conn.run("CREATE TABLE IF NOT EXISTS odds_snapshots (id SERIAL PRIMARY KEY, captured_at TIMESTAMPTZ DEFAULT NOW(), match_id TEXT, home_team TEXT, away_team TEXT, sport TEXT, bookmaker TEXT, market TEXT, outcome TEXT, price FLOAT, prev_price FLOAT, price_held_seconds INT DEFAULT 0, match_minute INT DEFAULT 0, match_score TEXT DEFAULT '0-0')")
+        # Add columns if they don't exist (for existing tables)
+        try:
+            conn.run("ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS match_minute INT DEFAULT 0")
+        except:
+            pass
+        try:
+            conn.run("ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS match_score TEXT DEFAULT '0-0'")
+        except:
+            pass
         conn.run("CREATE INDEX IF NOT EXISTS idx_match_id ON odds_snapshots(match_id)")
         conn.run("CREATE INDEX IF NOT EXISTS idx_captured_at ON odds_snapshots(captured_at)")
         conn.run("CREATE TABLE IF NOT EXISTS goals (id SERIAL PRIMARY KEY, recorded_at TIMESTAMPTZ DEFAULT NOW(), match_id TEXT, home_team TEXT, away_team TEXT, match_minute INT, score TEXT, over_price_30s FLOAT, over_price_60s FLOAT, notes TEXT)")
