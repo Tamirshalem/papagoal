@@ -10,6 +10,7 @@ import pg8000.native
 import requests
 
 ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "")
+FOOTBALL_API_KEY = os.environ.get("FOOTBALL_API_KEY", "")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 PORT = int(os.environ.get("PORT", 8080))
 POLL_INTERVAL = 30
@@ -76,7 +77,44 @@ def run_engine(match_id, home, away, over, draw, home_win, minute, duration_seco
             signals.append({"rule": 15, "name": "Duration REJECTED 30s", "confidence": 80, "verdict": "NO GOAL"})
     return signals
 
-last_prices = {}
+live_match_minutes = {}  # match_id -> {minute, score, home, away}
+
+def fetch_live_minutes():
+    """Fetch live match minutes from API-Football"""
+    if not FOOTBALL_API_KEY:
+        return
+    try:
+        headers = {"x-apisports-key": FOOTBALL_API_KEY}
+        resp = requests.get("https://v3.football.api-sports.io/fixtures?live=all", headers=headers, timeout=10)
+        if resp.status_code != 200:
+            return
+        data = resp.json()
+        for fixture in data.get("response", []):
+            teams = fixture.get("teams", {})
+            status = fixture.get("fixture", {}).get("status", {})
+            goals = fixture.get("goals", {})
+            home = teams.get("home", {}).get("name", "")
+            away = teams.get("away", {}).get("name", "")
+            minute = status.get("elapsed", 0) or 0
+            score = f"{goals.get('home', 0)}-{goals.get('away', 0)}"
+            fid = str(fixture.get("fixture", {}).get("id", ""))
+            live_match_minutes[home + "_" + away] = {"minute": minute, "score": score, "fid": fid}
+        log.info(f"⏱ Got {len(data.get('response', []))} live fixtures")
+    except Exception as e:
+        log.error(f"Football API error: {e}")
+
+def get_match_minute(home, away):
+    """Try to find minute for a match"""
+    key = home + "_" + away
+    if key in live_match_minutes:
+        return live_match_minutes[key]["minute"]
+    # Try partial match
+    for k, v in live_match_minutes.items():
+        if home.split()[0].lower() in k.lower() or away.split()[0].lower() in k.lower():
+            return v["minute"]
+    return 0
+
+
 
 def collect_odds():
     try:
@@ -132,7 +170,8 @@ def collect_odds():
                     key_over = f"{match_id}_totals_Over"
                     if key_over in last_prices:
                         dur = int(time.time() - last_prices[key_over]["since"])
-                    sigs = run_engine(match_id, home, away, over_price, draw_price, home_win, 0, dur)
+                    minute = get_match_minute(home, away)
+                    sigs = run_engine(match_id, home, away, over_price, draw_price, home_win, minute, dur)
                     for s in sigs:
                         conn.run("INSERT INTO signals (match_id, home_team, away_team, rule_name, rule_number, confidence, verdict, over_price, draw_price) VALUES (:a, :b, :c, :d, :e, :f, :g, :h, :i)", a=match_id, b=home, c=away, d=s["name"], e=s["rule"], f=s["confidence"], g=s["verdict"], h=over_price, i=draw_price)
             log.info("✅ Data saved")
@@ -143,8 +182,10 @@ def collect_odds():
 
 def collector_loop():
     time.sleep(5)
+    fetch_live_minutes()
     while True:
         collect_odds()
+        fetch_live_minutes()
         time.sleep(POLL_INTERVAL)
 
 DASHBOARD_HTML = """<!DOCTYPE html>
