@@ -126,7 +126,7 @@ def collect_odds():
                                     draw_price = price
                                 elif oname == home:
                                     home_win = price
-                            conn.run("INSERT INTO odds_snapshots (match_id, home_team, away_team, sport, bookmaker, market, outcome, price, prev_price, price_held_seconds) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)", match_id, home, away, sport, bname, mkey, oname, price, prev_price, held_seconds)
+                            conn.run("INSERT INTO odds_snapshots (match_id, home_team, away_team, sport, bookmaker, market, outcome, price, prev_price, price_held_seconds) VALUES (:a, :b, :c, :d, :e, :f, :g, :h, :i, :j)", a=match_id, b=home, c=away, d=sport, e=bname, f=mkey, g=oname, h=price, i=prev_price, j=held_seconds)
                 if over_price:
                     dur = 0
                     key_over = f"{match_id}_totals_Over"
@@ -134,7 +134,7 @@ def collect_odds():
                         dur = int(time.time() - last_prices[key_over]["since"])
                     sigs = run_engine(match_id, home, away, over_price, draw_price, home_win, 0, dur)
                     for s in sigs:
-                        conn.run("INSERT INTO signals (match_id, home_team, away_team, rule_name, rule_number, confidence, verdict, over_price, draw_price) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)", match_id, home, away, s["name"], s["rule"], s["confidence"], s["verdict"], over_price, draw_price)
+                        conn.run("INSERT INTO signals (match_id, home_team, away_team, rule_name, rule_number, confidence, verdict, over_price, draw_price) VALUES (:a, :b, :c, :d, :e, :f, :g, :h, :i)", a=match_id, b=home, c=away, d=s["name"], e=s["rule"], f=s["confidence"], g=s["verdict"], h=over_price, i=draw_price)
             log.info("✅ Data saved")
         finally:
             conn.close()
