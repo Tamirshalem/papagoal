@@ -21,7 +21,7 @@ app = Flask(__name__)
 
 # ─── Database ─────────────────────────────────────────────────────────────────
 def get_db():
-    return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    return pg8000.native.Connection(DATABASE_URL)
 
 def init_db():
     with get_db() as conn:
