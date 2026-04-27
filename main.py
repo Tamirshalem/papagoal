@@ -5,7 +5,7 @@ import logging
 import threading
 from datetime import datetime, timezone
 from flask import Flask, jsonify, render_template_string
-import pg8000
+import pg8000.native
 import requests
 
 # ─── Config ───────────────────────────────────────────────────────────────────
