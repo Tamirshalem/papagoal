@@ -209,7 +209,7 @@ if(!si.length){sg.innerHTML='<div class="empty">✅ אין אותות פעילי
 else{sg.innerHTML=si.map(s=>{const c=cm[s.rule_number]||'yellow';return`<div class="scard ${c}"><div class="rb ${c}">R${s.rule_number}</div><div><div class="sm">${s.home_team} vs ${s.away_team}</div><div class="srn">${s.rule_name}</div><div class="or"><span class="ot">Over: ${s.over_price||'—'}</span>${s.draw_price?'<span class="ot">Draw: '+s.draw_price+'</span>':''}</div></div><div class="vb ${c}">${s.verdict}</div></div>`;}).join('');}
 const ob=document.getElementById('ob');
 if(!od.length){ob.innerHTML='<tr><td colspan="7" class="empty">אין נתונים עדיין</td></tr>';}
-else{ob.innerHTML=od.map(o=>{const diff=o.prev_price?(o.price-o.prev_price).toFixed(2):null;const dc=!diff?'':(diff>0?'pu':'pd');const dt=!diff?'—':(diff>0?'▲ '+diff:'▼ '+Math.abs(diff));const h=o.price_held_seconds>0?Math.floor(o.price_held_seconds/60)+'m '+o.price_held_seconds%60+'s':'—';return`<tr><td>${o.home_team} vs ${o.away_team}</td><td>${o.market}</td><td>${o.outcome}</td><td><b>${o.price}</b></td><td class="${dc}">${dt}</td><td>${h}</td><td>${new Date(o.captured_at).toLocaleTimeString('he-IL')}</td></tr>`;}).join('');}
+else{ob.innerHTML=od.map(o=>{const diff=o.prev_price?(o.price-o.prev_price).toFixed(2):null;const dc=!diff?'':(parseFloat(diff)>0?'pu':'pd');const dt=!diff?'—':(parseFloat(diff)>0?'▲ '+diff:'▼ '+Math.abs(diff));const h=o.price_held_seconds>0?Math.floor(o.price_held_seconds/60)+'m '+o.price_held_seconds%60+'s':'—';return`<tr><td>${o.home_team} vs ${o.away_team}</td><td>${o.market}</td><td>${o.outcome}</td><td><b>${o.price}</b></td><td class="${dc}">${dt}</td><td>${h}</td><td>${new Date(o.captured_at).toLocaleTimeString('he-IL')}</td></tr>`;}).join('');}
 }catch(e){console.error(e);}
 }
 load();setInterval(load,15000);
@@ -274,10 +274,11 @@ def api_odds():
 def health():
     return jsonify({"status": "ok", "time": datetime.now(timezone.utc).isoformat()})
 
+# ─── Auto-start collector when loaded by gunicorn ────────────────────────────
+init_db()
+_collector_thread = threading.Thread(target=collector_loop, daemon=True)
+_collector_thread.start()
+log.info("📡 Collector started")
+
 if __name__ == "__main__":
-    log.info("🚀 PapaGoal starting...")
-    init_db()
-    t = threading.Thread(target=collector_loop, daemon=True)
-    t.start()
-    log.info("📡 Collector started")
     app.run(host="0.0.0.0", port=PORT, debug=False)
