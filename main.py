@@ -78,6 +78,7 @@ def run_engine(match_id, home, away, over, draw, home_win, minute, duration_seco
     return signals
 
 live_match_minutes = {}  # match_id -> {minute, score, home, away}
+last_prices = {}
 
 def fetch_live_minutes():
     """Fetch live match minutes from API-Football"""
