@@ -30,7 +30,7 @@ def get_db():
 def init_db():
     conn = get_db()
     try:
-        conn.run("CREATE TABLE IF NOT EXISTS odds_snapshots (id SERIAL PRIMARY KEY, captured_at TIMESTAMPTZ DEFAULT NOW(), match_id TEXT, home_team TEXT, away_team TEXT, sport TEXT, bookmaker TEXT, market TEXT, outcome TEXT, price FLOAT, prev_price FLOAT, price_held_seconds INT DEFAULT 0)")
+        conn.run("CREATE TABLE IF NOT EXISTS odds_snapshots (id SERIAL PRIMARY KEY, captured_at TIMESTAMPTZ DEFAULT NOW(), match_id TEXT, home_team TEXT, away_team TEXT, sport TEXT, bookmaker TEXT, market TEXT, outcome TEXT, price FLOAT, prev_price FLOAT, price_held_seconds INT DEFAULT 0, match_minute INT DEFAULT 0, match_score TEXT DEFAULT '0-0')")
         conn.run("CREATE INDEX IF NOT EXISTS idx_match_id ON odds_snapshots(match_id)")
         conn.run("CREATE INDEX IF NOT EXISTS idx_captured_at ON odds_snapshots(captured_at)")
         conn.run("CREATE TABLE IF NOT EXISTS goals (id SERIAL PRIMARY KEY, recorded_at TIMESTAMPTZ DEFAULT NOW(), match_id TEXT, home_team TEXT, away_team TEXT, match_minute INT, score TEXT, over_price_30s FLOAT, over_price_60s FLOAT, notes TEXT)")
@@ -119,14 +119,32 @@ def get_match_minute(home, away):
 
 def collect_odds():
     try:
+        # Use in-play endpoint for live matches
         url = "https://api.the-odds-api.com/v4/sports/soccer/odds/"
-        params = {"apiKey": ODDS_API_KEY, "regions": "eu", "markets": "h2h,totals", "oddsFormat": "decimal", "dateFormat": "iso"}
+        params = {"apiKey": ODDS_API_KEY, "regions": "eu", "markets": "h2h,totals", "oddsFormat": "decimal", "dateFormat": "iso", "commenceTimeFrom": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
         resp = requests.get(url, params=params, timeout=15)
         if resp.status_code != 200:
             log.warning(f"API error: {resp.status_code}")
             return
         games = resp.json()
-        log.info(f"📡 Fetched {len(games)} games")
+
+        # Also try live/in-play endpoint
+        live_url = "https://api.the-odds-api.com/v4/sports/soccer/scores/"
+        live_params = {"apiKey": ODDS_API_KEY, "daysFrom": 1}
+        live_resp = requests.get(live_url, params=live_params, timeout=15)
+        live_scores = {}
+        if live_resp.status_code == 200:
+            for score in live_resp.json():
+                if score.get("completed") == False and score.get("scores"):
+                    match_key = score["home_team"] + "_" + score["away_team"]
+                    home_score = next((s["score"] for s in score["scores"] if s["name"] == score["home_team"]), "0")
+                    away_score = next((s["score"] for s in score["scores"] if s["name"] == score["away_team"]), "0")
+                    live_scores[score["id"]] = {
+                        "score": f"{home_score}-{away_score}",
+                        "last_update": score.get("last_update", "")
+                    }
+
+        log.info(f"📡 Fetched {len(games)} games, {len(live_scores)} live scores")
         conn = get_db()
         try:
             for game in games:
@@ -137,6 +155,10 @@ def collect_odds():
                 over_price = None
                 draw_price = None
                 home_win = None
+
+                # Get live score if available
+                live = live_scores.get(match_id, {})
+                current_score = live.get("score", "0-0")
                 for bookmaker in game.get("bookmakers", [])[:1]:
                     bname = bookmaker["key"]
                     for market in bookmaker.get("markets", []):
@@ -165,13 +187,15 @@ def collect_odds():
                                     draw_price = price
                                 elif oname == home:
                                     home_win = price
-                            conn.run("INSERT INTO odds_snapshots (match_id, home_team, away_team, sport, bookmaker, market, outcome, price, prev_price, price_held_seconds) VALUES (:a, :b, :c, :d, :e, :f, :g, :h, :i, :j)", a=match_id, b=home, c=away, d=sport, e=bname, f=mkey, g=oname, h=price, i=prev_price, j=held_seconds)
+                            minute = get_match_minute(home, away)
+                            conn.run("INSERT INTO odds_snapshots (match_id, home_team, away_team, sport, bookmaker, market, outcome, price, prev_price, price_held_seconds, match_minute, match_score) VALUES (:a, :b, :c, :d, :e, :f, :g, :h, :i, :j, :k, :l)", a=match_id, b=home, c=away, d=sport, e=bname, f=mkey, g=oname, h=price, i=prev_price, j=held_seconds, k=minute, l=current_score)
                 if over_price:
                     dur = 0
                     key_over = f"{match_id}_totals_Over"
                     if key_over in last_prices:
                         dur = int(time.time() - last_prices[key_over]["since"])
                     minute = get_match_minute(home, away)
+                    log.info(f"⚽ {home} vs {away} | min:{minute} | over:{over_price} | score:{current_score}")
                     sigs = run_engine(match_id, home, away, over_price, draw_price, home_win, minute, dur)
                     for s in sigs:
                         conn.run("INSERT INTO signals (match_id, home_team, away_team, rule_name, rule_number, confidence, verdict, over_price, draw_price) VALUES (:a, :b, :c, :d, :e, :f, :g, :h, :i)", a=match_id, b=home, c=away, d=s["name"], e=s["rule"], f=s["confidence"], g=s["verdict"], h=over_price, i=draw_price)
@@ -300,8 +324,8 @@ def api_odds():
     try:
         conn = get_db()
         try:
-            rows = conn.run("SELECT DISTINCT ON (match_id, market, outcome) match_id, home_team, away_team, market, outcome, price, prev_price, price_held_seconds, captured_at FROM odds_snapshots WHERE captured_at > NOW() - INTERVAL '2 minutes' ORDER BY match_id, market, outcome, captured_at DESC LIMIT 100")
-            cols = ["match_id","home_team","away_team","market","outcome","price","prev_price","price_held_seconds","captured_at"]
+            rows = conn.run("SELECT DISTINCT ON (match_id, market, outcome) match_id, home_team, away_team, market, outcome, price, prev_price, price_held_seconds, captured_at, match_minute, match_score FROM odds_snapshots WHERE captured_at > NOW() - INTERVAL '2 minutes' ORDER BY match_id, market, outcome, captured_at DESC LIMIT 100")
+            cols = ["match_id","home_team","away_team","market","outcome","price","prev_price","price_held_seconds","captured_at","match_minute","match_score"]
             result = [dict(zip(cols, r)) for r in rows]
             for r in result:
                 r["captured_at"] = str(r["captured_at"])
