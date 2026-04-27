@@ -5,8 +5,7 @@ import logging
 import threading
 from datetime import datetime, timezone
 from flask import Flask, jsonify, render_template_string
-import psycopg2
-import psycopg2.extras
+import pg8000
 import requests
 
 # ─── Config ───────────────────────────────────────────────────────────────────
