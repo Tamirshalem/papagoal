@@ -120,6 +120,64 @@ Duration Rule: יחס שמחזיק 2+ דקות = שוק מאמין. יחס שק�
 
 last_prices = {}
 match_minutes = {}  # manual minutes override
+live_match_data = {}  # from Football API
+
+def fetch_live_minutes():
+    """Fetch live match minutes from API-Football Pro"""
+    if not FOOTBALL_API_KEY:
+        return
+    try:
+        headers = {"x-apisports-key": FOOTBALL_API_KEY}
+        resp = requests.get(
+            "https://v3.football.api-sports.io/fixtures",
+            headers=headers,
+            params={"live": "all"},
+            timeout=10
+        )
+        if resp.status_code != 200:
+            log.warning(f"Football API: {resp.status_code}")
+            return
+        fixtures = resp.json().get("response", [])
+        log.info(f"⏱ Football API: {len(fixtures)} live fixtures")
+        for f in fixtures:
+            try:
+                home = f["teams"]["home"]["name"]
+                away = f["teams"]["away"]["name"]
+                minute = f["fixture"]["status"]["elapsed"] or 0
+                hg = f["goals"]["home"] or 0
+                ag = f["goals"]["away"] or 0
+                score = f"{hg}-{ag}"
+                key = f"{home}_{away}"
+                live_match_data[key] = {"minute": minute, "score": score}
+                # Fuzzy keys by first word
+                live_match_data[home.split()[0].lower()] = {"minute": minute, "score": score}
+                live_match_data[away.split()[0].lower()] = {"minute": minute, "score": score}
+            except:
+                continue
+    except Exception as e:
+        log.error(f"Football API error: {e}")
+
+def get_live_data(home, away):
+    """Get minute and score for a match"""
+    # Manual override first
+    for mid, m in match_minutes.items():
+        if home in mid or away in mid:
+            return m, "0-0"
+    # Try exact match
+    key = f"{home}_{away}"
+    if key in live_match_data:
+        d = live_match_data[key]
+        return d["minute"], d["score"]
+    # Try fuzzy match
+    h1 = home.split()[0].lower()
+    a1 = away.split()[0].lower()
+    if h1 in live_match_data:
+        d = live_match_data[h1]
+        return d["minute"], d["score"]
+    if a1 in live_match_data:
+        d = live_match_data[a1]
+        return d["minute"], d["score"]
+    return 0, "0-0"
 
 def collect_odds():
     try:
@@ -154,7 +212,12 @@ def collect_odds():
                 home_win = None
                 away_win = None
                 current_score = live_scores.get(match_id, "0-0")
-                minute = match_minutes.get(match_id, 0)
+                minute, live_score = get_live_data(home, away)
+                if live_score != "0-0":
+                    current_score = live_score
+                # Manual override
+                if match_id in match_minutes:
+                    minute = match_minutes[match_id]
 
                 for bookmaker in game.get("bookmakers", [])[:1]:
                     bname = bookmaker["key"]
@@ -212,8 +275,10 @@ def collect_odds():
 
 def collector_loop():
     time.sleep(5)
+    fetch_live_minutes()
     while True:
         collect_odds()
+        fetch_live_minutes()
         time.sleep(POLL_INTERVAL)
 
 DASHBOARD_HTML = """<!DOCTYPE html>
