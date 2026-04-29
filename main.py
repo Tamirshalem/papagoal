@@ -8,6 +8,7 @@ from flask import Flask, jsonify, render_template_string, request
 import pg8000.native
 import requests
 
+# PapaGoal v10 - with Football API Pro
 ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 FOOTBALL_API_KEY = os.environ.get("FOOTBALL_API_KEY", "")
