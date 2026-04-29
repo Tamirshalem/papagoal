@@ -10,6 +10,7 @@ import requests
 
 ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+FOOTBALL_API_KEY = os.environ.get("FOOTBALL_API_KEY", "")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 PORT = int(os.environ.get("PORT", 8080))
 POLL_INTERVAL = 30
